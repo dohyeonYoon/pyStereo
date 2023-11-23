@@ -1,0 +1,74 @@
+import cv2
+import json
+import requests
+import asyncio
+import os
+import datetime
+
+def load_camera_config():
+    '''camera_config.json 파일을 읽어와서 파싱하는 함수'''
+    with open('camera_config.json', 'r') as config_file:
+        config_data = json.load(config_file)
+    return config_data
+
+def capture_img():
+    '''양쪽 카메라 렌즈에서 이미지를 캡처하고 저장하는 코드'''
+    # Load camera configuration from camera_config.json
+    config = load_camera_config()
+
+    # Open the left and right cameras.
+    left_cam = cv2.VideoCapture(1)
+    right_cam = cv2.VideoCapture(0)
+
+    # Set the resolution for each camera.
+    resolution_width, resolution_height = map(int, config['resolution'].split('x'))
+    left_cam.set(cv2.CAP_PROP_FRAME_WIDTH, resolution_width)
+    left_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution_height)
+    right_cam.set(cv2.CAP_PROP_FRAME_WIDTH, resolution_width)
+    right_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution_height)
+
+    # Adjust brightness and contrast
+    left_cam.set(cv2.CAP_PROP_BRIGHTNESS, float(config['brightness']))
+    left_cam.set(cv2.CAP_PROP_CONTRAST, float(config['contrast']))
+    right_cam.set(cv2.CAP_PROP_BRIGHTNESS, float(config['brightness']))
+    right_cam.set(cv2.CAP_PROP_CONTRAST, float(config['contrast']))
+
+    # Capture images from both cameras.
+    ret_left, left_frame = left_cam.read()
+    ret_right, right_frame = right_cam.read()
+
+    return left_frame, right_frame, config['SN'], config['server_url']
+
+def send_images_to_server(left_frame, right_frame, serial_num, server_url):
+    '''이미지를 클라우드 서버로 HTTP POST 방식으로 전송'''
+    url = f'http://{server_url}/upload'
+
+    # 데이터 설정
+    data = {'serial_num': serial_num}
+    files = {'left_image': ('left_image.jpg', left_frame, 'image/jpeg'),
+             'right_image': ('right_image.jpg', right_frame, 'image/jpeg')}
+
+    # 이미지를 서버로 전송
+    response = requests.post(url, data=data, files=files)
+
+    # 응답 확인
+    if response.status_code == 200:
+        print("Images successfully sent to the server.")
+    else:
+        print(f"Error sending images to the server. Status code: {response.status_code}")
+
+async def main():
+    while True:
+        # Capture images based on the camera configuration
+        left_frame, right_frame, serial_num, server_url = capture_img()
+
+        # Send images to the server
+        send_images_to_server(left_frame, right_frame, serial_num, server_url)
+
+        # Wait for the specified interval
+        config = load_camera_config()
+        interval_seconds = int(config['intervalHour']) * 3600 + int(config['intervalMin']) * 60
+        await asyncio.sleep(interval_seconds)
+
+if __name__ == "__main__":
+    asyncio.run(main())
